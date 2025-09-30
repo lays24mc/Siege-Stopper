@@ -1,54 +1,73 @@
 package net.tobsend.siegestopper;
 
-import org.slf4j.Logger;
-
 import com.mojang.logging.LogUtils;
-
 import net.minecraft.world.entity.ai.village.VillageSiege;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.village.VillageSiegeEvent;
+import org.slf4j.Logger;
 
-// The value here should match an entry in the META-INF/mods.toml file
+import java.lang.reflect.Field;
+
 @Mod(SiegeStopper.MODID)
 public class SiegeStopper {
 
-  // Define mod id in a common place for everything to reference
-  public static final String MODID = "siegestopper";
-  // Directly reference a slf4j logger
-  private static final Logger LOGGER = LogUtils.getLogger();
+    public static final String MODID = "siegestopper";
+    private static final Logger LOGGER = LogUtils.getLogger();
 
-  public SiegeStopper(IEventBus modEventBus) {
-    // Register the commonSetup method for modloading
-    modEventBus.addListener(this::commonSetup);
+    public SiegeStopper(IEventBus modEventBus) {
+        modEventBus.addListener(this::commonSetup);
 
-    // Register ourselves for server and other game events we are interested in
-    NeoForge.EVENT_BUS.register(this);
-    NeoForge.EVENT_BUS.register(SiegeEventHandler.class);
-  }
+        // IMPORTANT: Register the handler manually (this prevents distribution issues)
+        NeoForge.EVENT_BUS.register(new SiegeEventHandler());
+        LOGGER.info("[SiegeStopper] SiegeEventHandler registered on EVENT_BUS");
+    }
 
-  private void commonSetup(final FMLCommonSetupEvent event) {}
-
-  @SubscribeEvent
-  public void onServerStarting(ServerStartingEvent event) {
-    LOGGER.info("Siege stopper enabled.");
-  }
-
-  @EventBusSubscriber(modid = MODID, value = Dist.DEDICATED_SERVER)
-  public class SiegeEventHandler {
+    private void commonSetup(final FMLCommonSetupEvent event) {
+        LOGGER.info("[SiegeStopper] commonSetup loaded.");
+    }
 
     @SubscribeEvent
-    public static void onSiegeEvent(VillageSiegeEvent event) {
-      LOGGER.info("Siege was detected.");
-      event.getSiege().siegeState = VillageSiege.State.SIEGE_DONE;
-      event.setCanceled(true);
-      LOGGER.info("Siege stopped.");
+    public void onServerStarting(ServerStartingEvent event) {
+        LOGGER.info("[SiegeStopper] Mod activated, sieges are blocked.");
     }
-  }
+
+    public static class SiegeEventHandler {
+
+        @SubscribeEvent
+        public void onSiegeEvent(VillageSiegeEvent event) {
+            LOGGER.info("[SiegeStopper] Receive VillageSiegeEvent: {}", event);
+
+            Object siege = event.getSiege();
+            try {
+                // Search for field 'siegeState'
+                Field stateField = siege.getClass().getDeclaredField("siegeState");
+                stateField.setAccessible(true);
+
+                // Load enum class
+                Class<?> stateEnum = Class.forName("net.minecraft.world.entity.ai.village.VillageSiege$State");
+                Object siegeDone = stateEnum.getField("SIEGE_DONE").get(null);
+
+                // Overwrite state
+                stateField.set(siege, siegeDone);
+                LOGGER.info("[SiegeStopper] siegeState successfully set to SIEGE_DONE");
+            } catch (Exception e) {
+                LOGGER.error("[SiegeStopper] Error setting siegeState:", e);
+
+                // Debug: Log all fields
+                for (Field f : siege.getClass().getDeclaredFields()) {
+                    LOGGER.error("[SiegeStopper] Field found: {} ({})", f.getName(), f.getType());
+                }
+            }
+
+            // Cancel event
+            event.setCanceled(true);
+            LOGGER.info("[SiegeStopper] Siege canceled!");
+        }
+    }
 }
