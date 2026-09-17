@@ -1,8 +1,6 @@
 package net.tobsend.siegestopper;
 
 import com.mojang.logging.LogUtils;
-import net.minecraft.world.entity.ai.village.VillageSiege;
-import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
@@ -11,8 +9,6 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.village.VillageSiegeEvent;
 import org.slf4j.Logger;
-
-import java.lang.reflect.Field;
 
 @Mod(SiegeStopper.MODID)
 public class SiegeStopper {
@@ -29,7 +25,7 @@ public class SiegeStopper {
     }
 
     private void commonSetup(final FMLCommonSetupEvent event) {
-        LOGGER.info("[SiegeStopper] commonSetup loaded.");
+        LOGGER.debug("[SiegeStopper] commonSetup loaded.");
     }
 
     @SubscribeEvent
@@ -39,35 +35,22 @@ public class SiegeStopper {
 
     public static class SiegeEventHandler {
 
+        // Vanilla fires VillageSiegeEvent repeatedly (once per tick) for the same siege attempt,
+        // so we only log once per burst instead of once per tick.
+        private static final long LOG_COOLDOWN_MS = 2000L;
+        private long lastCancelLogTime = 0L;
+
         @SubscribeEvent
         public void onSiegeEvent(VillageSiegeEvent event) {
-            LOGGER.info("[SiegeStopper] Receive VillageSiegeEvent: {}", event);
+            LOGGER.debug("[SiegeStopper] Receive VillageSiegeEvent: {}", event);
 
-            Object siege = event.getSiege();
-            try {
-                // Search for field 'siegeState'
-                Field stateField = siege.getClass().getDeclaredField("siegeState");
-                stateField.setAccessible(true);
-
-                // Load enum class
-                Class<?> stateEnum = Class.forName("net.minecraft.world.entity.ai.village.VillageSiege$State");
-                Object siegeDone = stateEnum.getField("SIEGE_DONE").get(null);
-
-                // Overwrite state
-                stateField.set(siege, siegeDone);
-                LOGGER.info("[SiegeStopper] siegeState successfully set to SIEGE_DONE");
-            } catch (Exception e) {
-                LOGGER.error("[SiegeStopper] Error setting siegeState:", e);
-
-                // Debug: Log all fields
-                for (Field f : siege.getClass().getDeclaredFields()) {
-                    LOGGER.error("[SiegeStopper] Field found: {} ({})", f.getName(), f.getType());
-                }
-            }
-
-            // Cancel event
             event.setCanceled(true);
-            LOGGER.info("[SiegeStopper] Siege canceled!");
+
+            long now = System.currentTimeMillis();
+            if (now - lastCancelLogTime > LOG_COOLDOWN_MS) {
+                LOGGER.info("[SiegeStopper] Siege canceled!");
+            }
+            lastCancelLogTime = now;
         }
     }
 }
